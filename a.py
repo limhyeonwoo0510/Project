@@ -1,14 +1,19 @@
 import streamlit as st
 import pandas as pd
-import random
 
-# CSV 읽기 (같은 폴더에 있는 경우)
+# CSV 읽기 (인코딩 자동 시도)
 @st.cache_data
 def load_words():
-    df = pd.read_csv("words.csv")  # words.csv 파일이 같은 폴더에 있어야 함
-    return df
+    encodings = ["utf-8-sig", "euc-kr", "cp949"]
+    for enc in encodings:
+        try:
+            df = pd.read_csv("words.csv", encoding=enc)
+            return df
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("CSV 인코딩 오류: UTF-8-SIG로 저장하거나 지원 인코딩으로 변환 필요")
 
-# 점수와 상태 초기화
+# 세션 상태 초기화
 if 'score' not in st.session_state:
     st.session_state.score = 0
 if 'quiz_word' not in st.session_state:
@@ -35,11 +40,10 @@ if mode == "학습 모드":
 elif mode == "퀴즈 모드":
     st.subheader("❓ 영어 뜻 맞추기")
 
-    # 새 문제 버튼
     if st.button("새 문제"):
         st.session_state.quiz_word = df.sample(1).iloc[0]
+        st.session_state.answer = ""
 
-    # 문제 출력
     if st.session_state.quiz_word is not None:
         eng_word = st.session_state.quiz_word['English']
         correct_meaning = st.session_state.quiz_word['Korean']
