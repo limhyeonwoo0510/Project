@@ -34,7 +34,7 @@ else:
     st.write(f"안녕하세요, **{st.session_state.username}** 님!")
 
     # CSV 불러오기 (탭 구분)
-    df = pd.read_csv("words.csv", sep="\t", encoding="utf-8")
+    df = pd.read_csv("words.csv", encoding="utf-8")
     
     # 퀴즈 진행
     remaining = df[~df["English"].isin(st.session_state.asked_words)]
