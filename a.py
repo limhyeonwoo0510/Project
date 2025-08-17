@@ -4,7 +4,7 @@ import random
 import requests
 
 # 서버 IP와 포트
-SERVER_URL = "http://192.168.0.100:5000"  # 실제 서버 IP로 변경
+SERVER_URL = "http://192.168.55.245:5000"  # 실제 서버 IP로 변경
 
 # 세션 상태 초기화
 if "username" not in st.session_state:
