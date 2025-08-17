@@ -1,63 +1,74 @@
 import streamlit as st
 import pandas as pd
-import requests
 import random
+import requests
 
-SERVER_URL = "http://localhost:5000"  # Flask 서버 주소
+# 서버 주소
+SERVER_URL = "http://localhost:5000"
 
-# CSV 불러오기
-df = pd.read_csv("words.csv")  # "english,korean" 구조
-words = df.to_dict(orient="records")
-
-# 사용자 이름 입력
+# 세션 상태 초기화
+if "score" not in st.session_state:
+    st.session_state.score = 0
+if "current_word" not in st.session_state:
+    st.session_state.current_word = None
+if "asked_words" not in st.session_state:
+    st.session_state.asked_words = []
 if "username" not in st.session_state:
     st.session_state.username = ""
 
-st.session_state.username = st.text_input("이름을 입력하세요", st.session_state.username)
+# 사용자 이름 입력
+if st.session_state.username == "":
+    username = st.text_input("이름을 입력하세요:")
+    if username:
+        st.session_state.username = username
+        # 서버에 유저 등록
+        requests.post(f"{SERVER_URL}/register", json={"username": username})
+else:
+    st.write(f"안녕하세요, **{st.session_state.username}** 님!")
 
-if st.session_state.username:
-    menu = st.sidebar.radio("메뉴 선택", ["단어 보기", "퀴즈", "랭킹"])
+    # 단어 데이터 불러오기 (탭 구분!)
+    df = pd.read_csv("words.csv", sep="\t", encoding="utf-8")
 
-    if menu == "단어 보기":
-        st.write(df)
+    # 새로운 문제 불러오기
+    if st.session_state.current_word is None and len(st.session_state.asked_words) < len(df):
+        remaining = df[~df["English"].isin(st.session_state.asked_words)]
+        if not remaining.empty:
+            st.session_state.current_word = remaining.sample(1).iloc[0]
 
-    elif menu == "퀴즈":
-        if "used" not in st.session_state:
-            st.session_state.used = set()
-        if "current_word" not in st.session_state:
-            st.session_state.current_word = None
+    if st.session_state.current_word is not None:
+        word = st.session_state.current_word["English"]
+        answer = st.session_state.current_word["Korean"]
 
-        if len(st.session_state.used) == len(words):
-            st.success("모든 문제를 다 풀었어!")
-        else:
-            if st.session_state.current_word is None:
-                st.session_state.current_word = random.choice(words)
-                while st.session_state.current_word["english"] in st.session_state.used:
-                    st.session_state.current_word = random.choice(words)
+        st.write(f"다음 단어의 뜻은 무엇일까요? **{word}**")
 
-            q = st.session_state.current_word
-            st.subheader(f"단어: {q['english']}")
-            answer = st.text_input("뜻을 입력하세요", key="answer")
+        user_answer = st.text_input("뜻을 입력하세요:")
 
-            if st.button("제출"):
-                if answer.strip() == q["korean"]:
-                    st.success("정답!")
-                    st.session_state.used.add(q["english"])
+        if st.button("제출"):
+            if user_answer.strip() == answer.strip():
+                st.success("정답입니다!")
+                st.session_state.score += 1
+                # 서버에 점수 업데이트
+                requests.post(f"{SERVER_URL}/update_score", json={
+                    "username": st.session_state.username,
+                    "score": st.session_state.score
+                })
+            else:
+                st.error(f"틀렸습니다! 정답은 {answer}")
 
-                    # 서버에 점수 저장
-                    requests.post(f"{SERVER_URL}/add_points", json={
-                        "username": st.session_state.username,
-                        "points": 10
-                    })
+            st.session_state.asked_words.append(word)
+            st.session_state.current_word = None  # 다음 문제로 넘어가도록 리셋
 
-                    st.session_state.current_word = None  # 다음 문제로 넘어가도록 초기화
-                else:
-                    st.error(f"틀렸습니다! 정답: {q['korean']}")
+    else:
+        st.write("모든 문제를 다 푸셨습니다!")
 
-    elif menu == "랭킹":
+    # 점수 표시
+    st.write(f"현재 점수: {st.session_state.score}")
+
+    # 랭킹 조회
+    if st.button("랭킹 보기"):
         res = requests.get(f"{SERVER_URL}/ranking")
         if res.status_code == 200:
             ranking = res.json()
-            st.write("### 랭킹")
-            for i, row in enumerate(ranking, start=1):
-                st.write(f"{i}. {row['username']} - {row['points']}점")
+            st.write("### 🏆 랭킹")
+            for i, r in enumerate(ranking, 1):
+                st.write(f"{i}. {r['username']} - {r['score']}점")
