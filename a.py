@@ -1,61 +1,63 @@
 import streamlit as st
 import pandas as pd
+import requests
+import random
 
-# CSV 읽기 (인코딩 자동 시도)
-@st.cache_data
-def load_words():
-    encodings = ["utf-8-sig", "euc-kr", "cp949"]
-    for enc in encodings:
-        try:
-            df = pd.read_csv("words.csv", encoding=enc)
-            return df
-        except UnicodeDecodeError:
-            continue
-    raise ValueError("CSV 인코딩 오류: UTF-8-SIG로 저장하거나 지원 인코딩으로 변환 필요")
+SERVER_URL = "http://localhost:5000"  # Flask 서버 주소
 
-# 세션 상태 초기화
-if 'score' not in st.session_state:
-    st.session_state.score = 0
-if 'quiz_word' not in st.session_state:
-    st.session_state.quiz_word = None
+# CSV 불러오기
+df = pd.read_csv("words.csv")  # "english,korean" 구조
+words = df.to_dict(orient="records")
 
-st.title("📚 영어 단어 학습 프로그램")
+# 사용자 이름 입력
+if "username" not in st.session_state:
+    st.session_state.username = ""
 
-# 데이터 불러오기
-df = load_words()
+st.session_state.username = st.text_input("이름을 입력하세요", st.session_state.username)
 
-# 모드 선택
-mode = st.radio("모드 선택", ["학습 모드", "퀴즈 모드"])
+if st.session_state.username:
+    menu = st.sidebar.radio("메뉴 선택", ["단어 보기", "퀴즈", "랭킹"])
 
-# -------------------
-# 학습 모드
-# -------------------
-if mode == "학습 모드":
-    st.subheader("📖 영어 단어와 뜻")
-    st.dataframe(df)
+    if menu == "단어 보기":
+        st.write(df)
 
-# -------------------
-# 퀴즈 모드
-# -------------------
-elif mode == "퀴즈 모드":
-    st.subheader("❓ 영어 뜻 맞추기")
+    elif menu == "퀴즈":
+        if "used" not in st.session_state:
+            st.session_state.used = set()
+        if "current_word" not in st.session_state:
+            st.session_state.current_word = None
 
-    if st.button("새 문제"):
-        st.session_state.quiz_word = df.sample(1).iloc[0]
-        st.session_state.answer = ""
+        if len(st.session_state.used) == len(words):
+            st.success("모든 문제를 다 풀었어!")
+        else:
+            if st.session_state.current_word is None:
+                st.session_state.current_word = random.choice(words)
+                while st.session_state.current_word["english"] in st.session_state.used:
+                    st.session_state.current_word = random.choice(words)
 
-    if st.session_state.quiz_word is not None:
-        eng_word = st.session_state.quiz_word['English']
-        correct_meaning = st.session_state.quiz_word['Korean']
+            q = st.session_state.current_word
+            st.subheader(f"단어: {q['english']}")
+            answer = st.text_input("뜻을 입력하세요", key="answer")
 
-        st.write(f"**영어 단어:** {eng_word}")
-        answer = st.text_input("뜻을 입력하세요", key="answer_input")
+            if st.button("제출"):
+                if answer.strip() == q["korean"]:
+                    st.success("정답!")
+                    st.session_state.used.add(q["english"])
 
-        if st.button("정답 확인"):
-            if answer.strip() == correct_meaning.strip():
-                st.success("정답입니다! +10점")
-                st.session_state.score += 10
-            else:
-                st.error(f"틀렸습니다. 정답: {correct_meaning}")
+                    # 서버에 점수 저장
+                    requests.post(f"{SERVER_URL}/add_points", json={
+                        "username": st.session_state.username,
+                        "points": 10
+                    })
 
-    st.write(f"현재 점수: **{st.session_state.score}점**")
+                    st.session_state.current_word = None  # 다음 문제로 넘어가도록 초기화
+                else:
+                    st.error(f"틀렸습니다! 정답: {q['korean']}")
+
+    elif menu == "랭킹":
+        res = requests.get(f"{SERVER_URL}/ranking")
+        if res.status_code == 200:
+            ranking = res.json()
+            st.write("### 랭킹")
+            for i, row in enumerate(ranking, start=1):
+                st.write(f"{i}. {row['username']} - {row['points']}점")
