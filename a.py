@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import random
 
-SERVER_URL = "http://127.0.0.1:5000"  # 서버 실행 주소 맞게 바꿔야 함
+SERVER_URL = "http://192.168.55.245:5000"  # 서버 실행 주소 맞게 바꿔야 함
 
 # CSV에서 단어 불러오기
 @st.cache_data
