@@ -8,14 +8,23 @@ SERVER_IP = "127.0.0.1"   # 서버 IP
 SERVER_PORT = 5000
 
 # CSV 단어 불러오기
-def load_words(csv_file="words.csv"):
+def load_words():
     words = []
-    with open(csv_file, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if len(row) == 2:
-                words.append((row[0], row[1]))
+    # 인코딩을 utf-8 또는 cp949로 시도
+    try:
+        with open("words.csv", "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    words.append((row[0], row[1]))
+    except UnicodeDecodeError:
+        with open("words.csv", "r", encoding="cp949") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    words.append((row[0], row[1]))
     return words
+
 
 # 서버에 데이터 전송
 def send_to_server(message):
