@@ -1,102 +1,69 @@
 import streamlit as st
+import pandas as pd
+import requests
 import random
-import csv
-import socket
 
-# 서버 정보
-SERVER_IP = "192.168.55.245"   # 서버 IP
-SERVER_PORT = 5000
+SERVER_URL = "http://127.0.0.1:5000"  # 서버 실행 주소 맞게 바꿔야 함
 
-# CSV 단어 불러오기
+# CSV에서 단어 불러오기
+@st.cache_data
 def load_words():
-    words = []
-    # 인코딩을 utf-8 또는 cp949로 시도
-    try:
-        with open("words.csv", "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) >= 2:
-                    words.append((row[0], row[1]))
-    except UnicodeDecodeError:
-        with open("words.csv", "r", encoding="cp949") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) >= 2:
-                    words.append((row[0], row[1]))
-    return words
+    df = pd.read_csv("words.csv")  # "english","korean" 형식
+    return df
 
+df = load_words()
 
-# 서버에 데이터 전송
-def send_to_server(message):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((SERVER_IP, SERVER_PORT))
-        s.sendall(message.encode())
-        return s.recv(4096).decode()
-
-# 단어 불러오기
-words = load_words()
-
-# Streamlit UI
-st.title("📘 영어 단어 학습 프로그램")
-
-if "page" not in st.session_state:
-    st.session_state.page = "login"
-if "score" not in st.session_state:
-    st.session_state.score = 0
+# 세션 상태 초기화
 if "name" not in st.session_state:
     st.session_state.name = ""
+if "score" not in st.session_state:
+    st.session_state.score = 0
 
-# 로그인 페이지
-if st.session_state.page == "login":
+st.title("영단어 학습 & 퀴즈 앱")
+
+# 사용자 이름 입력
+if st.session_state.name == "":
     st.session_state.name = st.text_input("이름을 입력하세요")
     if st.button("시작하기"):
-        if st.session_state.name.strip():
-            st.session_state.page = "menu"
+        # 서버에서 기존 점수 불러오기
+        res = requests.get(f"{SERVER_URL}/load/{st.session_state.name}")
+        if res.status_code == 200:
+            st.session_state.score = res.json()["score"]
+            st.success(f"환영합니다 {st.session_state.name}! 현재 점수: {st.session_state.score}")
+else:
+    st.subheader(f"안녕하세요 {st.session_state.name}님, 현재 점수: {st.session_state.score}")
 
-# 메뉴 페이지
-elif st.session_state.page == "menu":
-    st.header(f"안녕하세요, {st.session_state.name}님!")
-    if st.button("단어 학습하기"):
-        st.session_state.page = "study"
-    if st.button("퀴즈 풀기"):
-        st.session_state.page = "quiz"
-    if st.button("점수 랭킹 보기"):
-        st.session_state.page = "rank"
+    menu = st.radio("메뉴 선택", ["단어 보기", "퀴즈 풀기", "랭킹 보기"])
 
-# 단어 학습 페이지
-elif st.session_state.page == "study":
-    st.header("📖 단어 학습")
-    for eng, kor in words[:20]:  # 20개만 예시
-        st.write(f"{eng} → {kor}")
-    if st.button("뒤로가기"):
-        st.session_state.page = "menu"
+    if menu == "단어 보기":
+        st.dataframe(df)
 
-# 퀴즈 페이지
-elif st.session_state.page == "quiz":
-    st.header("📝 단어 퀴즈")
-    if "quiz_word" not in st.session_state:
-        st.session_state.quiz_word = random.choice(words)
+    elif menu == "퀴즈 풀기":
+        word = df.sample(1).iloc[0]
+        st.write(f"다음 영어 단어의 뜻은? 👉 **{word['english']}**")
 
-    eng, kor = st.session_state.quiz_word
-    answer = st.text_input(f"{eng} 의 뜻은 무엇일까요?")
+        options = [word["korean"]]
+        options += random.sample(list(df["korean"]), 3)
+        random.shuffle(options)
 
-    if st.button("제출"):
-        if answer.strip() == kor:
-            st.success("정답입니다! +10점")
-            st.session_state.score += 10
-        else:
-            st.error(f"틀렸습니다. 정답: {kor}")
-        st.session_state.quiz_word = random.choice(words)
+        answer = st.radio("정답을 고르세요", options)
 
-    if st.button("뒤로가기"):
-        # 점수 서버 저장
-        send_to_server(f"SAVE,{st.session_state.name},{st.session_state.score}")
-        st.session_state.page = "menu"
+        if st.button("제출"):
+            if answer == word["korean"]:
+                st.session_state.score += 10
+                st.success("정답입니다! +10점")
+            else:
+                st.session_state.score -= 5
+                st.error(f"오답입니다! 정답: {word['korean']} (-5점)")
 
-# 랭킹 페이지
-elif st.session_state.page == "rank":
-    st.header("🏆 점수 랭킹")
-    data = send_to_server("RANK")
-    st.text(data)
-    if st.button("뒤로가기"):
-        st.session_state.page = "menu"
+            # 서버에 점수 저장
+            requests.post(f"{SERVER_URL}/save", json={
+                "name": st.session_state.name,
+                "score": st.session_state.score
+            })
+
+    elif menu == "랭킹 보기":
+        res = requests.get(f"{SERVER_URL}/ranking")
+        if res.status_code == 200:
+            ranking = res.json()["ranking"]
+            st.table(ranking)
