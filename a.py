@@ -4,7 +4,7 @@ import csv
 import socket
 
 # 서버 정보
-SERVER_IP = "127.0.0.1"   # 서버 IP
+SERVER_IP = "192.168.55.245"   # 서버 IP
 SERVER_PORT = 5000
 
 # CSV 단어 불러오기
