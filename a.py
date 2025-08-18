@@ -1,69 +1,77 @@
 import streamlit as st
-import pandas as pd
-import requests
-import random
+import csv
+import socket
 
-SERVER_URL = "http://192.168.55.245:5000"  # 서버 실행 주소 맞게 바꿔야 함
+SERVER_IP = "127.0.0.1"
+SERVER_PORT = 5000
 
-# CSV에서 단어 불러오기
-@st.cache_data
+def send_to_server(message):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((SERVER_IP, SERVER_PORT))
+            s.sendall(message.encode())
+            data = s.recv(1024).decode()
+        return data
+    except Exception as e:
+        return f"Error: {e}"
+
 def load_words():
-    df = pd.read_csv("words.csv")  # "english","korean" 형식
-    return df
+    words = []
+    with open("words.csv", newline="", encoding="utf-8") as csvfile:
+        reader = csv.reader(csvfile)
+        for row in reader:
+            if len(row) >= 2:
+                words.append((row[0], row[1]))
+    return words
 
-df = load_words()
+words = load_words()
 
-# 세션 상태 초기화
+if "page" not in st.session_state:
+    st.session_state.page = "menu"
 if "name" not in st.session_state:
     st.session_state.name = ""
 if "score" not in st.session_state:
     st.session_state.score = 0
+if "index" not in st.session_state:
+    st.session_state.index = 0
+if "selected" not in st.session_state:
+    st.session_state.selected = None  # 선택 답안 저장
+if "answered" not in st.session_state:
+    st.session_state.answered = False  # 제출 여부
 
-st.title("영단어 학습 & 퀴즈 앱")
+st.title("영어 단어 학습 프로그램 (TCP 통신)")
 
-# 사용자 이름 입력
-if st.session_state.name == "":
-    st.session_state.name = st.text_input("이름을 입력하세요")
-    if st.button("시작하기"):
-        # 서버에서 기존 점수 불러오기
-        res = requests.get(f"{SERVER_URL}/load/{st.session_state.name}")
-        if res.status_code == 200:
-            st.session_state.score = res.json()["score"]
-            st.success(f"환영합니다 {st.session_state.name}! 현재 점수: {st.session_state.score}")
-else:
-    st.subheader(f"안녕하세요 {st.session_state.name}님, 현재 점수: {st.session_state.score}")
+if st.session_state.page == "menu":
+    st.subheader("메뉴")
+    name = st.text_input("이름 입력", st.session_state.name)
+    if st.button("시작"):
+        st.session_state.name = name
+        st.session_state.page = "quiz"
 
-    menu = st.radio("메뉴 선택", ["단어 보기", "퀴즈 풀기", "랭킹 보기"])
+elif st.session_state.page == "quiz":
+    if st.session_state.index >= len(words):
+        st.success(f"퀴즈 종료! 최종 점수: {st.session_state.score}")
+        send_to_server(f"SAVE,{st.session_state.name},{st.session_state.score}")
+        st.session_state.page = "menu"
+    else:
+        eng, kor = words[st.session_state.index]
+        st.subheader(f"문제 {st.session_state.index+1}: {eng}")
 
-    if menu == "단어 보기":
-        st.dataframe(df)
+        # 답 선택
+        st.session_state.selected = st.radio(
+            "정답을 선택하세요:",
+            [kor, "틀린 뜻 예시 1", "틀린 뜻 예시 2"],
+            index=None,   # 처음엔 아무 것도 선택되지 않게
+            key=f"q{st.session_state.index}"
+        )
 
-    elif menu == "퀴즈 풀기":
-        word = df.sample(1).iloc[0]
-        st.write(f"다음 영어 단어의 뜻은? 👉 **{word['english']}**")
-
-        options = [word["korean"]]
-        options += random.sample(list(df["korean"]), 3)
-        random.shuffle(options)
-
-        answer = st.radio("정답을 고르세요", options)
-
+        # 제출 버튼
         if st.button("제출"):
-            if answer == word["korean"]:
-                st.session_state.score += 10
-                st.success("정답입니다! +10점")
+            if st.session_state.selected == kor:
+                st.success("정답입니다!")
+                st.session_state.score += 1
             else:
-                st.session_state.score -= 5
-                st.error(f"오답입니다! 정답: {word['korean']} (-5점)")
-
-            # 서버에 점수 저장
-            requests.post(f"{SERVER_URL}/save", json={
-                "name": st.session_state.name,
-                "score": st.session_state.score
-            })
-
-    elif menu == "랭킹 보기":
-        res = requests.get(f"{SERVER_URL}/ranking")
-        if res.status_code == 200:
-            ranking = res.json()["ranking"]
-            st.table(ranking)
+                st.error(f"오답입니다! 정답은 {kor}")
+            st.session_state.index += 1
+            st.session_state.selected = None  # 선택 초기화
+            st.rerun()
